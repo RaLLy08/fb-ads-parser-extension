@@ -123,28 +123,25 @@ const parseAds = async (tabId) => {
 }
 const initialTabState = {
   tabId: null,
-  activateButton: false,
-  actionType: '',
   ads: []
 }
 
 chrome.storage.onChanged.addListener(
   async (changes, namespace) => {
+    if (namespace !== 'sync') return;
 
     for (const [key, change] of Object.entries(changes)) {
 
       const { oldValue, newValue } = change;
-      const { tabId, actionType } = newValue;
+      const { tabId } = newValue;
 
-      if (!tabId || actionType !== 'ACTIVATE_BUTTON') return;
-  
       if (newValue.activateButton) {
 
         const loop = async () => {
-          
+          const tabStateView = (await chrome.storage.sync.get(String(tabId)))[tabId];
           const tabState = (await chrome.storage.local.get(String(tabId)))[tabId];
 
-          if (!tabState.activateButton) return;
+          if (!tabStateView.activateButton) return;
 
           const [ tabData ] = await parseAds(Number(tabId));
 
@@ -155,12 +152,12 @@ chrome.storage.onChanged.addListener(
 
             const newState = {
               ...tabState,
-              actionType: 'START_LOOP',
               ads: [...tabState.ads, ...newAds]
             }
 
             await chrome.storage.local.set({ [tabId]: newState });
           }
+          console.log('loop', tabId)
 
           await sleep(200 + 100*Math.random())
 
@@ -169,19 +166,12 @@ chrome.storage.onChanged.addListener(
 
         loop();
 
-        // const newState = {
-        //   ...newValue,
-        //   actionType: 'INTERVAL_SET',
-        // }
-
-        // await chrome.storage.sync.set({ [tabId]: newState });
       } else {
         // clear state after turning off
         const tabState = (await chrome.storage.local.get(String(tabId)))[tabId];
 
         const newState = {
           ...tabState,
-          actionType: 'CLEAR_ADS',
           ads: []
         }
 
