@@ -1,5 +1,7 @@
 const CHAT_ID ='';
 const BOT_TOKEN = '';
+// const CHAT_ID ='';
+// const BOT_TOKEN = '';
 
 const sleep = async (ms) => await new Promise((res, rej) => setTimeout(res, ms));
 
@@ -29,22 +31,26 @@ const getDiff = (parsedAds, stateAds=[]) => {
 const getTelegramMessageLink = (ads, chatId, botToken) => {
   let message = '';
 
+  const formatImages = (images) => {
+    return (images || []).map((img, i) => `[Image ${i + 1}](${img})`).join('\n')
+  }
+
   ads.forEach(pAd => {
     message += `${pAd.title}\n\n`;
-    message += `${pAd.images.join('\n')}\n\n`;
+    message += `${formatImages(pAd.images)}\n\n`;
     message += `${pAd.description}\n\n`;
   })
 
-  message = encodeURI(message)
+  message = encodeURIComponent(message)
 
-  return `https://api.telegram.org/bot${botToken}/sendMessage?chat_id=${chatId}&text=${message}`
+  return `https://api.telegram.org/bot${botToken}/sendMessage?chat_id=${chatId}&text=${message}&parse_mode=Markdown`
 }
 
 async function injectParseAdsScript() {
   window.scrollTo(0, document.body.scrollHeight)
 
-  await new Promise((res, rej) => setTimeout(res, 300))
-
+  await new Promise((res, rej) => setTimeout(res, 700 + 100*Math.random()))
+  
   const parseImages = (container) => {
     const images = container.querySelectorAll('img');
 
@@ -53,11 +59,11 @@ async function injectParseAdsScript() {
     images.forEach(img => {
       const { height, width } = img;
 
-      if (height * width < 100) return
+      if (height * width < 1000) return
 
       const src = img.getAttribute('src');
 
-      result.push(src);
+      srcs.push(src);
     });
 
     return srcs;
@@ -82,7 +88,7 @@ async function injectParseAdsScript() {
   }
 
   const isAdContainer = (possibleContainer) => {
-    if (possibleContainer.childElementCount < 3) return false;
+    if (!possibleContainer.contains(possibleContainer.querySelector(`div[data-ad-preview]`))) return false;
 
     return true
   }
@@ -136,49 +142,50 @@ chrome.storage.onChanged.addListener(
 
         const loop = async () => {
           
-          const tabState = (await chrome.storage.sync.get(String(tabId)))[tabId];
+          const tabState = (await chrome.storage.local.get(String(tabId)))[tabId];
 
           if (!tabState.activateButton) return;
 
-          const [ result ] = await parseAds(Number(tabId));
-        
-          const newAds = getDiff(result.data, tabState.ads)
+          const [ tabData ] = await parseAds(Number(tabId));
+
+          const newAds = getDiff(tabData.result.data, tabState.ads)
 
           if (newAds.length) {
             fetch(getTelegramMessageLink(newAds, CHAT_ID, BOT_TOKEN))
 
             const newState = {
               ...tabState,
+              actionType: 'START_LOOP',
               ads: [...tabState.ads, ...newAds]
             }
 
-            await chrome.storage.sync.set({ [tabId]: newState });
+            await chrome.storage.local.set({ [tabId]: newState });
           }
 
-          await sleep(1000)
+          await sleep(200 + 100*Math.random())
 
           loop();
         }
 
         loop();
 
+        // const newState = {
+        //   ...newValue,
+        //   actionType: 'INTERVAL_SET',
+        // }
 
-        const newState = {
-          ...newValue,
-          actionType: 'INTERVAL_SET',
-        }
-
-        await chrome.storage.sync.set({ [tabId]: newState });
+        // await chrome.storage.sync.set({ [tabId]: newState });
       } else {
         // clear state after turning off
-        const tabState = (await chrome.storage.sync.get(String(tabId)))[tabId];
+        const tabState = (await chrome.storage.local.get(String(tabId)))[tabId];
 
         const newState = {
           ...tabState,
+          actionType: 'CLEAR_ADS',
           ads: []
         }
 
-        await chrome.storage.sync.set({ [tabId]: newState });
+        await chrome.storage.local.set({ [tabId]: newState });
       }
 
     }

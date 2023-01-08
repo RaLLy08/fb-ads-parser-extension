@@ -14,12 +14,12 @@ const init = async () => {
     
     if (!tabId) console.error('Tab id not found')
 
-    const tabState = (await chrome.storage.sync.get(tabId))[tabId] || {};
+    const tabState = (await chrome.storage.local.get(tabId))[tabId] || {};
 
     activateButton.checked = tabState.activateButton;
     
     activateButton.addEventListener('click', async (e) => {
-        const tabState = (await chrome.storage.sync.get(tabId))[tabId];
+        const tabState = (await chrome.storage.local.get(tabId))[tabId];
         const isActive = e.target.checked;
 
         const newState = {
@@ -29,7 +29,7 @@ const init = async () => {
             actionType: activateButtonActionType,
             activateButton: isActive,
         }
-        await chrome.storage.sync.set({ [tabId]: newState });
+        await chrome.storage.local.set({ [tabId]: newState });
     });
 }
 
