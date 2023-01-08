@@ -148,7 +148,11 @@ chrome.storage.onChanged.addListener(
           const newAds = getDiff(tabData.result.data, tabState.ads)
 
           if (newAds.length) {
-            fetch(getTelegramMessageLink(newAds, CHAT_ID, BOT_TOKEN))
+            try {
+              fetch(getTelegramMessageLink(newAds, CHAT_ID, BOT_TOKEN))
+            } catch (e) {
+              console.error(e);
+            }
 
             const newState = {
               ...tabState,
@@ -157,8 +161,7 @@ chrome.storage.onChanged.addListener(
 
             await chrome.storage.local.set({ [tabId]: newState });
           }
-          console.log('loop', tabId)
-
+        
           await sleep(200 + 100*Math.random())
 
           loop();
