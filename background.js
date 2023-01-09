@@ -58,7 +58,28 @@ const getTelegramMessageLink = (ads, chatId, botToken) => {
 }
 
 async function injectParseAdsScript() {
-  window.scrollTo(0, document.body.scrollHeight);
+  // window.scrollTo(0, document.body.scrollHeight);
+
+  const smoothScrollToBottom = () => {
+    const h =  document.body.scrollHeight;
+    let k = 0;
+
+    return new Promise((res, rej) => {
+        const intervalId = setInterval(() => {
+        if (k > 1000000) res();    
+            
+        if (h >= document.body.scrollHeight) {
+            k++
+            // if (k%10 !== 0) return;  
+            window.scrollBy(0, 100)
+        } else {
+            res();
+            clearInterval(intervalId)
+        }
+      }, 100)
+    })
+  }
+  await smoothScrollToBottom();
 
   const waitTextContentChange = async (el) => {
     const prevTextContent = el.textContent;
@@ -95,7 +116,7 @@ async function injectParseAdsScript() {
     })
   };
 
-  await new Promise((res, rej) => setTimeout(res, 700 + 100*Math.random()));
+  await new Promise((res, rej) => setTimeout(res, 200 + 100*Math.random()));
   
   const lang = document.querySelector('html').lang || 'en';
 
@@ -174,8 +195,21 @@ async function injectParseAdsScript() {
     return true
   };
 
+  const getAdHooksElements = () => {
 
-  const adsContainerHooks = document.querySelectorAll(`a[aria-label="${adHookKeyWord}"]`) || []
+    if (lang === 'en') {
+      return Array.from(document.querySelectorAll('use[*|href]:not([href])')).filter(el => {
+        const { width, height } = el.getBBox()
+    
+          if (width.toFixed(1) === '56.9' && height === 16) return true;
+      })
+    }
+
+    return document.querySelectorAll(`a[aria-label="${adHookKeyWord}"]`) || []
+  }
+
+
+  const adsContainerHooks = getAdHooksElements()
   const adContainers = [];
 
   adsContainerHooks.forEach(adHook => {
