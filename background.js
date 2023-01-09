@@ -243,14 +243,14 @@ chrome.storage.onChanged.addListener(
           const tabStateView = (await chrome.storage.sync.get(String(tabId)))[tabId];
           let tabState = (await chrome.storage.local.get(String(tabId)))[tabId];
 
-          if (!tabState.tabId) {
+          if (!tabState) {
             tabState = {
               ...initialTabState,
               tabId,
             }
           }
 
-          if (!tabStateView.activateButton) return;
+          if (!tabStateView?.activateButton) return;
 
           const [ tabData ] = await parseAds(Number(tabId));
           const newAds = getDiff(tabData.result.data, tabState.ads)
