@@ -2,7 +2,6 @@ const CHAT_ID ='';
 const BOT_TOKEN = '';
 
 
-
 const sleep = async (ms) => await new Promise((res, rej) => setTimeout(res, ms));
 
 const getDiff = (parsedAds, stateAds=[]) => {
@@ -59,22 +58,21 @@ const getTelegramMessageLink = (ads, chatId, botToken) => {
 
 async function injectParseAdsScript() {
   // window.scrollTo(0, document.body.scrollHeight);
-
   const smoothScrollToBottom = () => {
     const h =  document.body.scrollHeight;
     let k = 0;
 
     return new Promise((res, rej) => {
         const intervalId = setInterval(() => {
-        if (k > 1000000) res();    
+        if (k > 1000) res();    
             
         if (h >= document.body.scrollHeight) {
             k++
-            // if (k%10 !== 0) return;  
             window.scrollBy(0, 100)
         } else {
-            res();
             clearInterval(intervalId)
+
+            res();
         }
       }, 100)
     })
