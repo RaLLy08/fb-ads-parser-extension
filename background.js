@@ -1,6 +1,61 @@
 const CHAT_ID ='';
 const BOT_TOKEN = '';
 
+class VideoLinkParser {
+  static fetchFbVideoPage = async (url) => {
+    const res =  await fetch(url, {
+        method: 'GET',
+        headers: {
+            'sec-fetch-user': '?1',
+            'sec-fetch-user':'?1',
+            'sec-ch-ua-mobile':'?0',
+            'sec-fetch-site': 'none',
+            'sec-fetch-dest': 'document',
+            'sec-fetch-mode':'navigate',
+            'cache-control':'max-age=0',
+            'authority': 'www.facebook.com',
+            'upgrade-insecure-requests': '1',
+            'accept-language':'en-GB,en;q=0.9,tr-TR;q=0.8,tr;q=0.7,en-US;q=0.6',
+            'sec-ch-ua':'"Google Chrome";v="89", "Chromium";v="89", ";Not A Brand";v="99"',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.114 Safari/537.36',
+            'accept' :'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+        }
+    });
+  
+    return res.text()
+  }
+
+  static cleanStr(url) {
+    return JSON.parse(`{"text": "${url}"}`).text;
+  }
+
+  static getHdLink(outerHtml) {
+    const url = (/playable_url_quality_hd":"([^"]+)"/g.exec(outerHtml) || [])[1]
+
+    if (!url) return;
+
+    return this.cleanStr(url);
+  }
+
+  static getSdLink(outerHtml) {
+    const url = (/playable_url":"([^"]+)"/g.exec(outerHtml) || [])[1]
+
+    if (!url) return;
+
+    return this.cleanStr(url);
+  }
+
+  async getVideoLink(url) {
+    const html = await VideoLinkParser.fetchFbVideoPage(url);
+
+    const hdLink = VideoLinkParser.getHdLink(html);
+
+    if (hdLink) return hdLink;
+
+    return VideoLinkParser.getSdLink(html);
+  }  
+}
+
 
 const sleep = async (ms) => await new Promise((res, rej) => setTimeout(res, ms));
 
@@ -79,10 +134,7 @@ async function injectParseAdsScript() {
   }
   await smoothScrollToBottom();
 
-  const waitTextContentChange = async (el) => {
-    const prevTextContent = el.textContent;
-    const maxAttempt = 10;
-    const repeatCheckMs = 100;
+  const waitForChange = async (initialState, getUpdatedState, maxAttempt=20, repeatCheckMs=100) => {
     let attemptCount = 0;
     
     return new Promise((res, rej) => {
@@ -99,18 +151,18 @@ async function injectParseAdsScript() {
         );
 
         const check = () => {
-            if (el.textContent !== prevTextContent) {
+            const updated = getUpdatedState();
+
+            if (updated !== initialState) {
                 clearInterval(interval);
-                res(el.textContent);
+                res(updated);
             }
 
             if (attemptCount > maxAttempt) {
                 clearInterval(interval);
                 rej('waitTextContentChange: timeout')
             }
-        }
-
-        
+        }    
     })
   };
 
@@ -129,6 +181,11 @@ async function injectParseAdsScript() {
     uk:'Показати більше',
     en:'See more',
   };
+
+  const copyLinkWords = {
+    en: 'Copy link',
+    uk: 'Копіювати посилання',
+  }
 
   const seeMoreWord = seeMoreWords[lang];
   const adHookKeyWord = adKeyWords[lang];
@@ -152,8 +209,14 @@ async function injectParseAdsScript() {
     return srcs;
   };
 
-  const parseDescription = (container) =>  container.querySelector(`div[data-ad-preview]`);
+  const parsePopupElement = () => document.querySelector('div[role="menu"]');
+  const parsePopupCopyUrlLink = (popup) => Array.from(popup.querySelectorAll('span')).find(el => el.textContent === copyLinkWords[lang]);
+  const waitForAdPopupTextContent = async () => waitForChange(undefined, () => parsePopupElement()?.textContent, 20, 300);
 
+  const waitForChangeTextContent = async (el) => await waitForChange(el.textContent, () => el.textContent);
+
+
+  const parseDescription = (container) =>  container.querySelector(`div[data-ad-preview]`);
   const parseTitle = (container) => container.querySelector('strong');
 
   const parseThirdPartyLinks = (container) => {
@@ -187,6 +250,9 @@ async function injectParseAdsScript() {
     return Array.from(container.querySelectorAll('div[role="button"]')).find(el => el.textContent.includes(seeMoreWord))
   }
 
+  const parsePopupButton = (container) => container.querySelector('div[aria-haspopup]');
+  
+
   const isAdContainer = (possibleContainer) => {
     if (!possibleContainer.contains(possibleContainer.querySelector(`div[data-ad-preview]`))) return false;
 
@@ -219,18 +285,53 @@ async function injectParseAdsScript() {
     adContainers.push(container);
   });
 
-  for (const container of adContainers) {
-    const seeMoreButton = parseSeeMoreButton(container);
+  // clicking see more
+  for (const adContainer of adContainers) {
+    const seeMoreButton = parseSeeMoreButton(adContainer);
 
     if (!seeMoreButton) continue;
 
-    const descriptionBlock = parseDescription(container);
+    const descriptionBlock = parseDescription(adContainer);
 
     seeMoreButton.click();
 
-    await waitTextContentChange(descriptionBlock);
+    await waitForChangeTextContent(descriptionBlock);
   };
 
+  // getting video links
+  // for (const adContainer of adContainers) {
+  //   const video = adContainer.querySelector('video');
+
+  //   if (!video) continue;
+
+  //   const popupBtn = parsePopupButton(adContainer);
+
+  //   // popupBtn.click();
+
+  //   try {
+  //     await waitForAdPopupTextContent(adContainer);
+  //   } catch {
+  //     // removing to prevent cycling opening
+  //     // adContainer.remove();
+  //   }
+
+  //   const popupEl = parsePopupElement();
+  //   const popupCopyUrlLinkButton = parsePopupCopyUrlLink(popupEl);
+  //   console.log(popupCopyUrlLinkButton)
+
+  //   await new Promise((res, rej) => setTimeout(res, 6000));
+
+
+  //   console.log(popupCopyUrlLinkButton.click())
+
+  //   // popupCopyUrlLink.click();
+
+  //   // popupEl?.remove();
+
+  //   // await new Promise((res, rej) => setTimeout(res, 100));
+
+  //   // adContainer.remove()
+  // }
 
   const data = [];
 
@@ -239,7 +340,7 @@ async function injectParseAdsScript() {
 
     data.push(parsed);
   })
-  
+
   return {
     data,
   };
@@ -255,6 +356,7 @@ const parseAds = async (tabId) => {
     console.error(e);
   }
 }
+
 const initialTabState = {
   tabId: null,
   ads: []
