@@ -1,6 +1,7 @@
 const CHAT_ID ='';
 const BOT_TOKEN = '';
 
+
 class VideoLinkParser {
   static fetchFbVideoPage = async (url) => {
     const res =  await fetch(url, {
@@ -56,59 +57,67 @@ class VideoLinkParser {
   }  
 }
 
+const addParseVideoFromLinks = async (pasedDatas) => {
+  const videoLinkParser = new VideoLinkParser();
+
+  for (const data of pasedDatas) {
+
+    if (data.pageVideoLink) {
+      let videoLink = 'error video link';
+
+      try {
+        videoLink = await videoLinkParser.getVideoLink(data.pageVideoLink);
+      } catch (e) {
+        console.error('addParseVideoFromLinks error', e)
+      }
+
+      data.videoLink = videoLink;
+    }    
+    
+  }
+  
+}
+
+
 
 const sleep = async (ms) => await new Promise((res, rej) => setTimeout(res, ms));
 
-const getDiff = (parsedAds, stateAds=[]) => {
-  const newAds = [];
+const getTelegramMessageLink = (ad, chatId, botToken) => {
+  const htmlLink = (text, link) => {
+    if (!link) return '';
 
-  parsedAds.forEach(pAd => {
-
-    const isExist = stateAds.some(tAd => {
-      if (
-          tAd.images?.length === tAd.images?.length && 
-          tAd.description === pAd.description && 
-          tAd.title === pAd.title
-        ) {
-
-          return true;
-        }
-    })
-
-    if (!isExist) newAds.push(pAd);
-  })
-
-  return newAds;
-
-}
-
-const getTelegramMessageLink = (ads, chatId, botToken) => {
-  let message = '';
+    return `<a href="${link}">${text}</a>`
+  }
 
   const formatImages = (images) => {
-    return (images || []).map((img, i) => `[Image ${i + 1}](${img})`).join('\n')
+    return (images || []).map((img, i) => htmlLink(`Image ${i + 1}`, img)).join('\n')
   }
 
   const formatSiteLinks = (links) => {
     return (links || []).map((link, i) => {
       const { href, text } = link;
 
-      if (text === '') return `[Other Link: ${i + 1}](${href})`
+      if (text === '') return htmlLink(`Other Link: ${i + 1}`, href)
 
-      return `[${text}](${href})`
+      return htmlLink(text, href)
     }).join('\n')
   }
 
-  ads.forEach(pAd => {
-    message += `${pAd.title}\n\n`;
-    message += `${formatImages(pAd.images)}\n\n`;
-    message += `${pAd.description}\n\n`;
-    message += `${formatSiteLinks(pAd.links)}\n\n`;
-  })
+  const formatVideoLink = (videoLink) => {
+    return htmlLink('Video Link', videoLink)
+  }
 
-  message = encodeURIComponent(message)
+  const messageBody = [
+    ad.title,
+    formatVideoLink(ad.videoLink),
+    formatImages(ad.images),
+    ad.description,
+    formatSiteLinks(ad.links),
+  ].filter(Boolean).join('\n\n')
 
-  return `https://api.telegram.org/bot${botToken}/sendMessage?chat_id=${chatId}&text=${message}&parse_mode=Markdown`
+  let message = encodeURIComponent(messageBody)
+
+  return `https://api.telegram.org/bot${botToken}/sendMessage?chat_id=${chatId}&text=${message}&parse_mode=HTML`
 }
 
 async function injectParseAdsScript() {
@@ -160,7 +169,7 @@ async function injectParseAdsScript() {
 
             if (attemptCount > maxAttempt) {
                 clearInterval(interval);
-                rej('waitTextContentChange: timeout')
+                rej(`waitChange: timeout ${initialState}`)
             }
         }    
     })
@@ -177,18 +186,27 @@ async function injectParseAdsScript() {
   };
 
   const seeMoreWords = {
-    ru:'Eщё',
+    ru:'Ещё',
     uk:'Показати більше',
     en:'See more',
   };
 
-  const copyLinkWords = {
-    en: 'Copy link',
-    uk: 'Копіювати посилання',
+  const codeFrameButtonWords = {
+    en: 'Embed',
+    uk: 'Вбудувати',
+    ru: 'Вставить на сайт',
+  }
+
+  const dialogCloseButtonWords = {
+    uk: 'Закрити',
+    ru: 'Закрыть',
+    en: 'Close',
   }
 
   const seeMoreWord = seeMoreWords[lang];
   const adHookKeyWord = adKeyWords[lang];
+  const codeFrameButtonWord = codeFrameButtonWords[lang];
+  const dialogCloseButtonWord = dialogCloseButtonWords[lang];
 
 
   const parseImageSrcs = (container) => {
@@ -210,13 +228,16 @@ async function injectParseAdsScript() {
   };
 
   const parsePopupElement = () => document.querySelector('div[role="menu"]');
-  const parsePopupCopyUrlLink = (popup) => Array.from(popup.querySelectorAll('span')).find(el => el.textContent === copyLinkWords[lang]);
+  const parsePopupCodeFrameButton = (popup) => Array.from(popup.querySelectorAll('span')).find(el => el.textContent === codeFrameButtonWord);
   const waitForAdPopupTextContent = async () => waitForChange(undefined, () => parsePopupElement()?.textContent, 20, 300);
 
+  const parseDialog = () => document.querySelector('div[role="dialog"]');
+  // const parseDialogCloseButton = (dialog) => Array.from(dialog.querySelectorAll('span')).find(el => el.textContent === popupCloseButtonWord);
+  const parseDialogCloseButton = (dialog) => dialog.querySelector(`div[aria-label="${dialogCloseButtonWord}"]`);
   const waitForChangeTextContent = async (el) => await waitForChange(el.textContent, () => el.textContent);
 
 
-  const parseDescription = (container) =>  container.querySelector(`div[data-ad-preview]`);
+  const parseDescription = (container) => container.querySelector(`div[data-ad-preview]`);
   const parseTitle = (container) => container.querySelector('strong');
 
   const parseThirdPartyLinks = (container) => {
@@ -240,36 +261,44 @@ async function injectParseAdsScript() {
   const parseContainerData = (container) => {
     return {
       images: parseImageSrcs(container),
-      description: parseDescription(container).textContent,
-      title: parseTitle(container).textContent,
+      description: parseDescription(container)?.textContent,
+      title: parseTitle(container)?.textContent,
       links: parseThirdPartyLinks(container),
     }
   };
 
   const parseSeeMoreButton = (container) => {
-    return Array.from(container.querySelectorAll('div[role="button"]')).find(el => el.textContent.includes(seeMoreWord))
+    const buttons = Array.from(container.querySelectorAll('div[role="button"]'))
+
+    return buttons.find(el => el.textContent.includes(seeMoreWord))
   }
 
   const parsePopupButton = (container) => container.querySelector('div[aria-haspopup]');
   
 
   const isAdContainer = (possibleContainer) => {
-    if (!possibleContainer.contains(possibleContainer.querySelector(`div[data-ad-preview]`))) return false;
+    if (possibleContainer.contains(possibleContainer.querySelector(`div[data-ad-preview]`))) return true;
+    if (possibleContainer.contains(possibleContainer.querySelector(`div[aria-haspopup]`))) return true;
 
-    return true
+    return false
   };
 
   const getAdHooksElements = () => {
+    let hookEls = []
 
     if (lang === 'en') {
-      return Array.from(document.querySelectorAll('use[*|href]:not([href])')).filter(el => {
+      hookEls = Array.from(document.querySelectorAll(`use[*|href]:not([href]):not(use[data-skipAddHook])`)).filter(el => {
         const { width, height } = el.getBBox()
     
           if (width.toFixed(1) === '56.9' && height === 16) return true;
       })
+    } else {
+      hookEls = document.querySelectorAll(`a[aria-label="${adHookKeyWord}"]:not([data-skipAddHook])`) || []
     }
 
-    return document.querySelectorAll(`a[aria-label="${adHookKeyWord}"]`) || []
+    hookEls.forEach(el => el.setAttribute('data-skipAddHook', true));
+
+    return hookEls;
   }
 
 
@@ -299,48 +328,95 @@ async function injectParseAdsScript() {
   };
 
   // getting video links
-  // for (const adContainer of adContainers) {
-  //   const video = adContainer.querySelector('video');
 
-  //   if (!video) continue;
+  const parseInputTextIframeContent = (dialog) => /(?<=iframe).*?(?=iframe)/g.exec(dialog.outerHTML)[0];
+  const parseVideoCodeFromeIframe = (iframeText) => iframeText.match(/videos.*%/g)[0]?.match(/(?<=2F).*?(?=%)/g)[0];
 
-  //   const popupBtn = parsePopupButton(adContainer);
+  const pageVideoLinks = [];
 
-  //   // popupBtn.click();
+  for (let addContainerIndex = 0; addContainerIndex < adContainers.length; addContainerIndex++) {
+    const adContainer = adContainers[addContainerIndex];
 
-  //   try {
-  //     await waitForAdPopupTextContent(adContainer);
-  //   } catch {
-  //     // removing to prevent cycling opening
-  //     // adContainer.remove();
-  //   }
+    const video = adContainer.querySelectorAll('video');
+    // const isHistory = adContainer.querySelector('ul');
 
-  //   const popupEl = parsePopupElement();
-  //   const popupCopyUrlLinkButton = parsePopupCopyUrlLink(popupEl);
-  //   console.log(popupCopyUrlLinkButton)
+    if (video.length !== 1) continue;
+    // if (isHistory) continue;
+    if (adContainer.dataset._skipVideoLinkParsing) continue;
 
-  //   await new Promise((res, rej) => setTimeout(res, 6000));
+    // adContainer.scrollIntoView();
+    // await new Promise((res, rej) => setTimeout(res, 1000));
 
+    const popupBtn = parsePopupButton(adContainer);
 
-  //   console.log(popupCopyUrlLinkButton.click())
+    popupBtn.click();
 
-  //   // popupCopyUrlLink.click();
+    try {
+      await waitForAdPopupTextContent(adContainer);
+    } catch {
+      // prevent cycling opening
+      adContainer.dataset._skipVideoLinkParsing = true;
+      continue;
+    }
 
-  //   // popupEl?.remove();
+    const popupEl = parsePopupElement();
+    const popupCodeFrameButton = parsePopupCodeFrameButton(popupEl);
 
-  //   // await new Promise((res, rej) => setTimeout(res, 100));
+    if (!popupCodeFrameButton) {
+      adContainer.dataset._skipVideoLinkParsing = true;
 
-  //   // adContainer.remove()
-  // }
+      continue
+    };
+    
+    // open dialog
+    popupCodeFrameButton.click();
+
+    try {
+      // wait for open dialog
+      await waitForChange(undefined, () => {
+        if (parseDialog()?.textContent?.length > 0) return true;
+      }, 20, 300);
+    } catch {
+      console.error('wait for change parseDialog', addContainerIndex)
+      adContainer.dataset._skipVideoLinkParsing = true;
+      continue;
+    }
+
+    const dialog = parseDialog();
+    const inputTextIframeContent = parseInputTextIframeContent(dialog);
+
+    const videoCode = parseVideoCodeFromeIframe(inputTextIframeContent);
+
+    const watchLink = `https://www.facebook.com/watch/?v=${videoCode}`;
+
+    pageVideoLinks.push([watchLink, addContainerIndex]);
+
+    const closeBtn = parseDialogCloseButton(dialog);
+
+    closeBtn.click();
+
+    try {
+      // wait for close dialog
+      await waitForChange(dialog, () => parseDialog(), 20, 300);
+    } catch {
+
+    }
+  
+    adContainer.dataset._skipVideoLinkParsing = true;
+  }
+  // console.log(pageVideoLinks, adContainers.length)
 
   const data = [];
 
-  adContainers.forEach(adContainer => {
+  adContainers.forEach((adContainer, i) => {
     const parsed = parseContainerData(adContainer);
+
+    const pageVideoLink = pageVideoLinks.find(([_, index]) => index === i);
+    if (pageVideoLink) parsed.pageVideoLink = pageVideoLink[0];
 
     data.push(parsed);
   })
-
+  
   return {
     data,
   };
@@ -357,10 +433,6 @@ const parseAds = async (tabId) => {
   }
 }
 
-const initialTabState = {
-  tabId: null,
-  ads: []
-}
 
 chrome.storage.onChanged.addListener(
   async (changes, namespace) => {
@@ -375,33 +447,26 @@ chrome.storage.onChanged.addListener(
 
         const loop = async () => {
           const tabStateView = (await chrome.storage.sync.get(String(tabId)))[tabId];
-          let tabState = (await chrome.storage.local.get(String(tabId)))[tabId];
 
-          if (!tabState) {
-            tabState = {
-              ...initialTabState,
-              tabId,
-            }
-          }
 
           if (!tabStateView?.activateButton) return;
 
           const [ tabData ] = await parseAds(Number(tabId));
-          const newAds = getDiff(tabData.result.data, tabState.ads)
+          
+          const newAds = tabData.result.data;
+          console.log(newAds, 'before');
 
           if (newAds.length) {
-            try {
-              fetch(getTelegramMessageLink(newAds, CHAT_ID, BOT_TOKEN))
-            } catch (e) {
-              console.error(e);
-            }
+      
+            await addParseVideoFromLinks(newAds);
 
-            const newState = {
-              ...tabState,
-              ads: [...tabState.ads, ...newAds]
+            for (const ad of newAds) {
+              try {
+                await fetch(getTelegramMessageLink(ad, CHAT_ID, BOT_TOKEN))
+              } catch (e) {
+                console.error(e);
+              }
             }
-
-            await chrome.storage.local.set({ [tabId]: newState });
           }
         
           await sleep(200 + 100*Math.random())
@@ -411,16 +476,6 @@ chrome.storage.onChanged.addListener(
 
         loop();
 
-      } else {
-        // clear state after turning off
-        const tabState = (await chrome.storage.local.get(String(tabId)))[tabId];
-
-        const newState = {
-          ...tabState,
-          ads: []
-        }
-
-        await chrome.storage.local.set({ [tabId]: newState });
       }
 
     }
