@@ -1,7 +1,6 @@
 const CHAT_ID ='';
 const BOT_TOKEN = '';
 
-
 class VideoLinkParser {
   constructor(cookie) {
     this.cookie = cookie;
@@ -76,7 +75,9 @@ const addParseVideoFromLinks = async (pasedDatas, cookie) => {
       let videoLink = 'error video link';
 
       try {
+        console.log('fetching video link...');
         videoLink = await videoLinkParser.getVideoLink(data.pageVideoLink);
+        console.log('video link fetched');
       } catch (e) {
         console.error('addParseVideoFromLinks error', e)
       }
@@ -242,7 +243,9 @@ async function injectParseAdsScript() {
   const waitForAdPopupTextContent = async () => waitForChange(undefined, () => parsePopupElement()?.textContent, 20, 300);
 
   const parseDialog = () => {
-    const dialog = document.querySelector(`div[aria-label="Embed Video"]`)
+    const dialog = Array.from(document.querySelectorAll(`div[aria-label]`)).find(el => {
+     return el.getAttribute('aria-label') === 'Embed Video'
+  })
     // cheking dialog requerenments
     if (!dialog) {
       console.log('parseDialog: dialog not found');
@@ -251,8 +254,12 @@ async function injectParseAdsScript() {
     return dialog
   };
   // const parseDialogCloseButton = (dialog) => Array.from(dialog.querySelectorAll('span')).find(el => el.textContent === popupCloseButtonWord);
-  const parseDialogCloseButton = () => {
-    const closeBtn = document.querySelector(`div[aria-label="${dialogCloseButtonWord}"]`);
+  const parseDialogCloseButton = (dialog) => {
+    const closeBtn = Array.from(dialog.querySelectorAll('i[data-visualcompletion="css-img"]')).find(el => {
+      const parentElAria = el.parentElement?.getAttribute('aria-label');
+      
+      return parentElAria === dialogCloseButtonWord;
+  })
 
     if (!closeBtn) {
       console.log('parseDialogCloseButton: close button not found');
@@ -355,8 +362,8 @@ async function injectParseAdsScript() {
 
   // getting video links
 
-  const parseIframeTextFragment = () => {
-    const parsed = /https:\/\/www.facebook.com\/plugins\/video.php.*?<\/iframe>/g.exec(document.body.outerHTML);
+  const parseIframeTextFragment = (el) => {
+    const parsed = /https:\/\/www.facebook.com\/plugins\/video.php.*?<\/iframe>/g.exec(el?.outerHTML);
     if (!parsed) return console.log('parseIframeTextFragment: not found');
     
     return parsed[0];
@@ -405,13 +412,15 @@ async function injectParseAdsScript() {
 
     try {
       // wait for open dialog
-      await waitForChange(undefined, () => parseIframeTextFragment(), 20, 300);
+      await waitForChange(undefined, () => parseIframeTextFragment(parseDialog()), 20, 300);
     } catch {
       console.error('wait for change parseIframeTextFragment', addContainerIndex)
       continue;
     }
 
-    const iframeTextFragment = parseIframeTextFragment();
+    const dialog = parseDialog();
+
+    const iframeTextFragment = parseIframeTextFragment(dialog);
 
     const videoCode = parseVideoCodeFromeFragment(iframeTextFragment);
 
@@ -423,17 +432,19 @@ async function injectParseAdsScript() {
   
     }
 
-    const closeBtn = parseDialogCloseButton();
+    const closeBtn = parseDialogCloseButton(dialog);
 
     closeBtn?.click();
 
-    await new Promise((res, rej) => setTimeout(res, 200));
-    // try {
-    //   // wait for close dialog
-    //   await waitForChange(dialog, () => parseDialog(), 20, 300);
-    // } catch {
+    try {
+      // wait for close dialog
+      await waitForChange(dialog, () => {
+        console.log('wait for close dialog');
+        return parseDialog();
+      }, 20, 300);
+    } catch {
 
-    // }
+    }
   
   }
   // console.log(pageVideoLinks, adContainers.length)
@@ -488,12 +499,11 @@ chrome.storage.onChanged.addListener(
           const [ tabData ] = await parseAds(Number(tabId));
           
           const newAds = tabData.result.data;
-          console.log(newAds, 'before');
+          console.log(newAds, 'newAds');
 
           if (newAds.length) {
       
             await addParseVideoFromLinks(newAds, cookieText);
-
             for (const ad of newAds) {
               try {
                 await fetch(getTelegramMessageLink(ad, CHAT_ID, BOT_TOKEN))
