@@ -4,9 +4,10 @@
 	"description": "Scraps ads",
 	"version": "1.0",
 	"host_permissions": [
-		"http://*/*"
+		"http://*/*",
+        "https://*/"
 	],
-    "permissions": [ "scripting", "activeTab" , "storage", "unlimitedStorage", "clipboardRead"],
+    "permissions": [ "scripting", "activeTab" , "storage", "unlimitedStorage", "cookies"],
     "content_scripts": [
         {
             "matches": [ "<all_urls>" ],

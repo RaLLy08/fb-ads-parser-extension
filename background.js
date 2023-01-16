@@ -3,24 +3,34 @@ const BOT_TOKEN = '';
 
 
 class VideoLinkParser {
-  static fetchFbVideoPage = async (url) => {
+  constructor(cookie) {
+    this.cookie = cookie;
+  }
+
+  static fetchFbVideoPage = async (url, cookie) => {
+    const headers = {
+      'sec-fetch-user': '?1',
+      'sec-fetch-user':'?1',
+      'sec-ch-ua-mobile':'?0',
+      'sec-fetch-site': 'none',
+      'sec-fetch-dest': 'document',
+      'sec-fetch-mode':'navigate',
+      'cache-control':'max-age=0',
+      'authority': 'www.facebook.com',
+      'upgrade-insecure-requests': '1',
+      'accept-language':'en-GB,en;q=0.9,tr-TR;q=0.8,tr;q=0.7,en-US;q=0.6',
+      'sec-ch-ua':'"Google Chrome";v="89", "Chromium";v="89", ";Not A Brand";v="99"',
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.114 Safari/537.36',
+      'accept' :'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+    }
+
+    if (cookie) {
+      headers.cookie = cookie;
+    }
+
     const res =  await fetch(url, {
         method: 'GET',
-        headers: {
-            'sec-fetch-user': '?1',
-            'sec-fetch-user':'?1',
-            'sec-ch-ua-mobile':'?0',
-            'sec-fetch-site': 'none',
-            'sec-fetch-dest': 'document',
-            'sec-fetch-mode':'navigate',
-            'cache-control':'max-age=0',
-            'authority': 'www.facebook.com',
-            'upgrade-insecure-requests': '1',
-            'accept-language':'en-GB,en;q=0.9,tr-TR;q=0.8,tr;q=0.7,en-US;q=0.6',
-            'sec-ch-ua':'"Google Chrome";v="89", "Chromium";v="89", ";Not A Brand";v="99"',
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.114 Safari/537.36',
-            'accept' :'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-        }
+        headers,
     });
   
     return res.text()
@@ -47,7 +57,7 @@ class VideoLinkParser {
   }
 
   async getVideoLink(url) {
-    const html = await VideoLinkParser.fetchFbVideoPage(url);
+    const html = await VideoLinkParser.fetchFbVideoPage(url, this.cookie);
 
     const hdLink = VideoLinkParser.getHdLink(html);
 
@@ -57,8 +67,8 @@ class VideoLinkParser {
   }  
 }
 
-const addParseVideoFromLinks = async (pasedDatas) => {
-  const videoLinkParser = new VideoLinkParser();
+const addParseVideoFromLinks = async (pasedDatas, cookie) => {
+  const videoLinkParser = new VideoLinkParser(cookie);
 
   for (const data of pasedDatas) {
 
@@ -231,9 +241,25 @@ async function injectParseAdsScript() {
   const parsePopupCodeFrameButton = (popup) => Array.from(popup.querySelectorAll('span')).find(el => el.textContent === codeFrameButtonWord);
   const waitForAdPopupTextContent = async () => waitForChange(undefined, () => parsePopupElement()?.textContent, 20, 300);
 
-  const parseDialog = () => document.querySelector('div[role="dialog"]');
+  const parseDialog = () => {
+    const dialog = document.querySelector(`div[aria-label="Embed Video"]`)
+    // cheking dialog requerenments
+    if (!dialog) {
+      console.log('parseDialog: dialog not found');
+    };
+    
+    return dialog
+  };
   // const parseDialogCloseButton = (dialog) => Array.from(dialog.querySelectorAll('span')).find(el => el.textContent === popupCloseButtonWord);
-  const parseDialogCloseButton = (dialog) => dialog.querySelector(`div[aria-label="${dialogCloseButtonWord}"]`);
+  const parseDialogCloseButton = () => {
+    const closeBtn = document.querySelector(`div[aria-label="${dialogCloseButtonWord}"]`);
+
+    if (!closeBtn) {
+      console.log('parseDialogCloseButton: close button not found');
+    }
+
+    return closeBtn
+  };
   const waitForChangeTextContent = async (el) => await waitForChange(el.textContent, () => el.textContent);
 
 
@@ -329,8 +355,17 @@ async function injectParseAdsScript() {
 
   // getting video links
 
-  const parseInputTextIframeContent = (dialog) => /(?<=iframe).*?(?=iframe)/g.exec(dialog.outerHTML)[0];
-  const parseVideoCodeFromeIframe = (iframeText) => iframeText.match(/videos.*%/g)[0]?.match(/(?<=2F).*?(?=%)/g)[0];
+  const parseIframeTextFragment = () => {
+    const parsed = /https:\/\/www.facebook.com\/plugins\/video.php.*?<\/iframe>/g.exec(document.body.outerHTML);
+    if (!parsed) return console.log('parseIframeTextFragment: not found');
+    
+    return parsed[0];
+}
+  const parseVideoCodeFromeFragment = (iframeText) => {
+    if (!iframeText) return;
+
+    return iframeText.match(/videos.*%/g)[0]?.match(/(?<=2F).*?(?=%)/g)[0];
+  };
 
   const pageVideoLinks = [];
 
@@ -342,7 +377,6 @@ async function injectParseAdsScript() {
 
     if (video.length !== 1) continue;
     // if (isHistory) continue;
-    if (adContainer.dataset._skipVideoLinkParsing) continue;
 
     // adContainer.scrollIntoView();
     // await new Promise((res, rej) => setTimeout(res, 1000));
@@ -355,7 +389,6 @@ async function injectParseAdsScript() {
       await waitForAdPopupTextContent(adContainer);
     } catch {
       // prevent cycling opening
-      adContainer.dataset._skipVideoLinkParsing = true;
       continue;
     }
 
@@ -363,7 +396,6 @@ async function injectParseAdsScript() {
     const popupCodeFrameButton = parsePopupCodeFrameButton(popupEl);
 
     if (!popupCodeFrameButton) {
-      adContainer.dataset._skipVideoLinkParsing = true;
 
       continue
     };
@@ -373,36 +405,36 @@ async function injectParseAdsScript() {
 
     try {
       // wait for open dialog
-      await waitForChange(undefined, () => {
-        if (parseDialog()?.textContent?.length > 0) return true;
-      }, 20, 300);
+      await waitForChange(undefined, () => parseIframeTextFragment(), 20, 300);
     } catch {
-      console.error('wait for change parseDialog', addContainerIndex)
-      adContainer.dataset._skipVideoLinkParsing = true;
+      console.error('wait for change parseIframeTextFragment', addContainerIndex)
       continue;
     }
 
-    const dialog = parseDialog();
-    const inputTextIframeContent = parseInputTextIframeContent(dialog);
+    const iframeTextFragment = parseIframeTextFragment();
 
-    const videoCode = parseVideoCodeFromeIframe(inputTextIframeContent);
+    const videoCode = parseVideoCodeFromeFragment(iframeTextFragment);
 
-    const watchLink = `https://www.facebook.com/watch/?v=${videoCode}`;
-
-    pageVideoLinks.push([watchLink, addContainerIndex]);
-
-    const closeBtn = parseDialogCloseButton(dialog);
-
-    closeBtn.click();
-
-    try {
-      // wait for close dialog
-      await waitForChange(dialog, () => parseDialog(), 20, 300);
-    } catch {
-
-    }
+    if (videoCode) {
+      console.log(videoCode, 'videoCode')
+      const watchLink = `https://www.facebook.com/watch/?v=${videoCode}`;
   
-    adContainer.dataset._skipVideoLinkParsing = true;
+      pageVideoLinks.push([watchLink, addContainerIndex]);
+  
+    }
+
+    const closeBtn = parseDialogCloseButton();
+
+    closeBtn?.click();
+
+    await new Promise((res, rej) => setTimeout(res, 200));
+    // try {
+    //   // wait for close dialog
+    //   await waitForChange(dialog, () => parseDialog(), 20, 300);
+    // } catch {
+
+    // }
+  
   }
   // console.log(pageVideoLinks, adContainers.length)
 
@@ -444,6 +476,8 @@ chrome.storage.onChanged.addListener(
       const { tabId } = newValue;
 
       if (newValue.activateButton) {
+        const cookies = await chrome.cookies.getAll({domain: "facebook.com"});
+        const cookieText = cookies.map(({name, value}) => `${name}=${value}`).join('; ');
 
         const loop = async () => {
           const tabStateView = (await chrome.storage.sync.get(String(tabId)))[tabId];
@@ -458,7 +492,7 @@ chrome.storage.onChanged.addListener(
 
           if (newAds.length) {
       
-            await addParseVideoFromLinks(newAds);
+            await addParseVideoFromLinks(newAds, cookieText);
 
             for (const ad of newAds) {
               try {
@@ -480,3 +514,4 @@ chrome.storage.onChanged.addListener(
 
     }
 });
+
